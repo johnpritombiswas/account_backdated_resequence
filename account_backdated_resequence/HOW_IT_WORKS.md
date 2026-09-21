@@ -4,36 +4,87 @@
 
 ```
 account_backdated_resequence/
-├── models/account_journal.py         # adds the on/off toggle
-├── models/account_move.py            # ALL the logic
-├── views/account_journal_views.xml   # shows the toggle on the Journal form
-├── views/account_move_menus.xml      # Accounting -> Backdated Journal Entries
-└── tests/                            # 7 tests
+├── models/account_journal.py                          # adds the on/off toggle
+├── models/account_move.py                              # ALL the sequencing logic
+├── wizard/repair_wrong_sequence_prefix_wizard.py        # Accounting > Repair Sequence Prefixes
+├── security/ir.model.access.csv                         # access for the wizard
+├── views/account_journal_views.xml                      # shows the toggle on the Journal form
+├── views/account_move_menus.xml                         # Accounting -> Backdated Journal Entries
+└── tests/                                                # 15 tests
 ```
 
-## Logic (`models/account_move.py`)
+## Two separate problems, two separate fixes
 
-The module wraps Odoo's `_post()`. Odoo posts and numbers the entry as usual,
-and the module then checks whether the numbers still match the dates.
+Both live in `models/account_move.py`, both trigger from the same `_post()`
+override, but they're independent:
 
-1. **Post normally.** `super()._post()` runs first, so posting never fails
-   because of this module.
-2. **Gate.** Continue only if the journal toggle is on **or** the entry was
-   posted from the *Backdated Journal Entries* menu (the menu sets a
-   `backdated_resequence` context flag). The entry must also have a
-   date-based number; flat numbers such as `INV/0007` are skipped.
-3. **Lock.** `SELECT ... FOR UPDATE` on that journal and month, so two users
-   posting at the same time cannot both reorder it. If PostgreSQL reports a
-   serialization failure, Odoo's `retrying()` re-runs the whole transaction.
-4. **Detect disorder.** Take the other posted entries with the same sequence
-   prefix (for example `MISC/26-27/08/`). The entry is out of order if some
-   entry has a lower number but a later date. If none does, stop.
-5. **Hash check.** If any affected entry has an `inalterable_hash`, do not
+1. **Wrong-prefix correction** (`_correct_wrong_sequence_prefix`) - fixes a
+   name whose year/month doesn't match its own date. Runs unconditionally,
+   on every journal, every post - it's a correctness fix, not a
+   convenience. See below for why this can even happen.
+2. **Chronological reordering** (`_auto_resequence_backdated`) - fixes
+   numbers that are merely out of date order within an otherwise correct
+   period. Opt-in: only runs when the journal's toggle is on, or the entry
+   was posted through the *Backdated Journal Entries* menu.
+
+### 1. Wrong-prefix correction
+
+Odoo's own sequence lookup, when assigning a new entry's name, searches for
+an *existing* entry whose `date` falls in the new entry's period, and
+copies that entry's year/month digits **literally out of its name
+string** - not computed from the date. If that existing entry's name
+doesn't actually match its own date (a manually-set placeholder, a draft
+with a stale number, historical data that predates validation), the new
+entry inherits the exact same wrong digits.
+
+Left alone, Odoo's own `_constrains_date_sequence` then refuses to save
+that mismatch: *"The Date ... isn't aligned with the existing sequence
+number ... Clear the sequence number to proceed."* - a hard block, not a
+silent corruption.
+
+1. **Bypass, just long enough to let a name be assigned.** `_post()` posts
+   with that one constraint turned off for the entries it's posting -
+   without this, the scenario below never even gets a name to check.
+2. **Check.** For every posted move with a date-based sequence, recompute
+   what its prefix *should* be, purely from its own date, and compare to
+   what was actually assigned.
+3. **Hash check.** If the entry is already hash-secured (see Hash-lock
+   safety below), it can't be renamed - warn instead, stop.
+4. **Fix.** Rename it, right after the last existing entry that's
+   genuinely in that period.
+5. **Audit.** Chatter note: *"Corrected sequence: this entry's date (...)
+   does not match the ... numbering period assigned to it - renamed to
+   ..."*.
+
+### 2. Chronological reordering
+
+1. **Gate.** Journal toggle on, or posted via the *Backdated Journal
+   Entries* menu (sets a `backdated_resequence` context flag). Skipped for
+   flat numbers such as `INV/0007` (no date component to reorder by).
+2. **Lock.** `SELECT ... FOR UPDATE` on that journal and period, so two
+   users posting at the same time cannot both reorder it. If PostgreSQL
+   reports a serialization failure, Odoo's `retrying()` re-runs the whole
+   transaction.
+3. **Detect disorder.** Take the other posted entries with the same
+   sequence prefix (for example `MISC/26-27/08/`). The entry is out of
+   order if some entry has a lower number but a later date. If none does,
+   stop.
+4. **Hash check.** If any affected entry has an `inalterable_hash`, do not
    renumber. Post a chatter warning on the entry and stop.
-6. **Fix.** Create Odoo's own `account.resequence.wizard` with
-   `ordering='date'` and run `resequence()`. No numbering code is duplicated.
-7. **Audit.** Each renamed entry gets a chatter note: *"Automatically
+5. **Fix.** Create Odoo's own `account.resequence.wizard` with
+   `ordering='date'` and run `resequence()`. No numbering code is
+   duplicated.
+6. **Audit.** Each renamed entry gets a chatter note: *"Automatically
    resequenced from X to Y due to backdated posting."*
+
+### Repairing existing history
+
+The wrong-prefix fix above only touches the entry actually being posted.
+For entries that already have a wrong prefix from before the module was
+installed, **Accounting → Repair Sequence Prefixes**
+(`wizard/repair_wrong_sequence_prefix_wizard.py`) scans posted entries -
+one journal or all of them - and runs the same correction logic across
+all of them at once, reporting exactly what it renamed.
 
 ## Example
 
@@ -51,15 +102,21 @@ the menu, step 2 would stay `0002`, out of date order.
 
 ## Limits
 
-- **Per numbering period only.** It reorders within one prefix, i.e. one month
-  for `MISC/26-27/08/xxxx`-style numbers, because the counter restarts monthly.
-- **Assumes earlier entries were already in date order.** If the existing
-  numbering was already scrambled, the reorder could collide with a number
-  outside the affected set. This case is not tested.
-- **Does not fix a fiscal-year mismatch.** The error *"The Date ... isn't
-  aligned with the existing sequence number"* appears when the company's
-  fiscal-year end (Accounting > Configuration > Settings > Fiscal Year) does not
-  match the journal's number style (e.g. `26-27` needs a June 30 year end).
-  Odoo raises it in its own posting check, before this module runs.
-- **Hash-locked entries are never renumbered.** The entry still posts; a
-  warning is logged instead.
+- **Reordering is per numbering period only.** It reorders within one
+  prefix, i.e. one month for `MISC/26-27/08/xxxx`-style numbers, because
+  the counter restarts monthly.
+- **Reordering assumes earlier entries were already in date order.** If the
+  existing numbering was already scrambled, the reorder could collide with
+  a number outside the affected set. This case is not tested.
+- **Doesn't fix a genuine fiscal-year misconfiguration.** The same error
+  text - *"The Date ... isn't aligned with the existing sequence number"*
+  - can also appear when the company's fiscal-year end (Accounting >
+  Configuration > Settings > Fiscal Year) simply doesn't match the
+  journal's number style at all (e.g. `26-27` needs a June 30 year end,
+  not December 31). That's a real configuration problem, not a wrong
+  reference row, and this module can't tell the two apart from the error
+  alone - if the wrong-prefix fix runs and still can't make the numbers
+  line up, check the fiscal-year setting first.
+- **Hash-locked entries are never renumbered**, by either fix. They post
+  with whatever name Odoo assigned; a chatter warning explains why and
+  points to the manual Resequence wizard.

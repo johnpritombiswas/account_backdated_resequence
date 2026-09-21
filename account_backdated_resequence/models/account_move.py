@@ -224,7 +224,17 @@ class AccountMove(models.Model):
         if not out_of_order:
             return
 
-        scope = out_of_order | self
+        # The wizard treats move_ids as a *closed* set: it reassigns them
+        # sequential numbers starting from first_name, as if they were the
+        # only entries in this prefix. Scoping to just the pairwise
+        # out-of-order entries (plus self) would leave any in-order sibling
+        # that sits *inside* that numeric range untouched but still holding
+        # its old number - which the wizard would then reissue to a
+        # different entry, raising "Another entry with the same name
+        # already exists." Handing it every sibling in the prefix keeps the
+        # numbering space complete, so nothing outside the set can collide
+        # with a number now assigned inside it.
+        scope = siblings | self
         if scope.filtered('inalterable_hash'):
             self.message_post(body=_(
                 "This entry was posted with a backdated Accounting Date (%(date)s), which is "

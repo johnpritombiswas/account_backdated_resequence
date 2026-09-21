@@ -78,6 +78,41 @@ class TestBackdatedResequence(TestBackdatedResequenceCommon):
         resequence_msg = move1.message_ids.filtered(lambda m: 'Automatically resequenced' in (m.body or ''))
         self.assertTrue(resequence_msg, "Expected an audit chatter message documenting the resequencing.")
 
+    def test_reorder_does_not_collide_with_excluded_in_order_sibling(self):
+        """Reordering must include every sibling sharing the prefix, not just
+        the ones pairwise out of order with the move being posted - otherwise
+        an excluded sibling can be left still holding a number the wizard
+        just reassigned to someone else, raising "Another entry with the
+        same name already exists."
+
+        Setup: post two entries with the toggle off so they end up out of
+        date order with *each other* (real-world history, e.g. from before
+        this module was installed, or the toggle was enabled) - then post a
+        third, backdated between them, with the toggle on.
+        """
+        self.journal.auto_resequence_backdated = False
+        move_x = self._create_move('2024-08-25')
+        move_x.action_post()
+        move_y = self._create_move('2024-08-05')
+        move_y.action_post()  # backdated, but toggle is off: stays out of order
+
+        move_x.invalidate_recordset(['name'])
+        self.assertEqual(move_x.name, 'BDR/2024/08/0001')
+        self.assertEqual(move_y.name, 'BDR/2024/08/0002')
+
+        self.journal.auto_resequence_backdated = True
+        move_z = self._create_move('2024-08-15')
+        move_z.action_post()  # must not raise "Another entry with the same name already exists"
+
+        move_x.invalidate_recordset(['name'])
+        move_y.invalidate_recordset(['name'])
+        move_z.invalidate_recordset(['name'])
+
+        names = [move_x.name, move_y.name, move_z.name]
+        self.assertEqual(len(set(names)), 3, "No two entries should end up sharing a name.")
+        by_date = sorted([move_x, move_y, move_z], key=lambda m: m.date)
+        self.assertEqual([m.name for m in by_date], sorted(names), "All three must end up numbered in date order.")
+
     def test_disabled_journal_is_unaffected(self):
         """The toggle is opt-in: with it off, backdated posting is left as-is."""
         self.journal.auto_resequence_backdated = False

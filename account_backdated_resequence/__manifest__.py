@@ -63,7 +63,7 @@ Safety and integrity:
 
 See README.md in this module for more detail.
 """,
-    "version": "18.0.1.2.0",
+    "version": "18.0.1.2.1",
     "category": "Accounting/Accounting",
     "license": "LGPL-3",
     "author": "DotBD Solutions",

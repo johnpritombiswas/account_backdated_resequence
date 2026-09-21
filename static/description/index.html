@@ -1,0 +1,183 @@
+<section>
+  <div class="container py-5">
+    <div class="row justify-content-center">
+      <div class="col-md-9 col-12 text-center">
+        <h1 style="color:#714b67; font-size:36px; font-weight:700; margin-bottom:16px">Backdated Journal Entry Auto-Resequencing</h1>
+        <p style="color:#666; font-size:18px; line-height:28px; margin-bottom:16px">
+          Post a backdated journal entry and let Odoo put the numbering back
+          in chronological order automatically &mdash; no Developer Mode, no
+          manual Resequence step.
+        </p>
+        <span class="text-center" style="display:inline-block; background-color:#f5efff; color:#714b67; font-size:13px; font-weight:600; border-radius:20px; padding:6px 18px">
+          Built for Odoo 18.0 &mdash; Accounting
+        </span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section style="background-color:#f8f9fa">
+  <div class="container py-5">
+    <div class="row">
+      <div class="col-12 text-center mb-4">
+        <h2 style="color:#714b67; font-size:28px; font-weight:700">The Problem</h2>
+        <p style="color:#666; font-size:15px; line-height:24px">
+          Journals with a date-based sequence (e.g. <code>MISC/2024/08/0001</code>)
+          always number a new entry with the next available number in its
+          period &mdash; regardless of where that entry actually falls
+          chronologically among entries already posted there. Catching up on
+          bookkeeping by entering entries out of date order leaves the
+          numbers silently out of sync with the dates, fixable today only
+          through Settings &gt; Developer Mode &gt; select entries &gt;
+          Actions &gt; Resequence.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container py-5">
+    <div class="row">
+      <div class="col-12 text-center mb-4">
+        <h2 style="color:#714b67; font-size:30px; font-weight:700">How It Works</h2>
+        <p style="color:#666; font-size:15px">One toggle on the journal. From then on, posting handles the rest.</p>
+      </div>
+    </div>
+    <div class="row">
+      <div class="col-md-4 col-12 mb-4">
+        <div class="card h-100 shadow-sm" style="border:none; border-radius:12px">
+          <div class="card-body p-4 text-center">
+            <div class="text-center mb-3" style="width:60px; height:60px; line-height:60px; border-radius:50%; background-color:#f5efff; margin-left:auto; margin-right:auto">
+              <i class="fa fa-check" style="color:#714b67; font-size:26px; vertical-align:middle"></i>
+            </div>
+            <h3 style="color:#333; font-size:18px; font-weight:600; margin-bottom:10px">Post Always Succeeds</h3>
+            <p style="color:#666; font-size:14px; line-height:22px">
+              The backdated entry posts normally, immediately &mdash; nothing
+              is ever blocked while numbering catches up.
+            </p>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4 col-12 mb-4">
+        <div class="card h-100 shadow-sm" style="border:none; border-radius:12px">
+          <div class="card-body p-4 text-center">
+            <div class="text-center mb-3" style="width:60px; height:60px; line-height:60px; border-radius:50%; background-color:#f5efff; margin-left:auto; margin-right:auto">
+              <i class="fa fa-search" style="color:#714b67; font-size:26px; vertical-align:middle"></i>
+            </div>
+            <h3 style="color:#333; font-size:18px; font-weight:600; margin-bottom:10px">Disorder Detected</h3>
+            <p style="color:#666; font-size:14px; line-height:22px">
+              Right after posting, the module checks whether the entry's own
+              numbering period is now out of chronological order.
+            </p>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4 col-12 mb-4">
+        <div class="card h-100 shadow-sm" style="border:none; border-radius:12px">
+          <div class="card-body p-4 text-center">
+            <div class="text-center mb-3" style="width:60px; height:60px; line-height:60px; border-radius:50%; background-color:#f5efff; margin-left:auto; margin-right:auto">
+              <i class="fa fa-refresh" style="color:#714b67; font-size:26px; vertical-align:middle"></i>
+            </div>
+            <h3 style="color:#333; font-size:18px; font-weight:600; margin-bottom:10px">Reordered Automatically</h3>
+            <p style="color:#666; font-size:14px; line-height:22px">
+              If so, that period is reordered using Odoo's own built-in
+              Resequence wizard under the hood &mdash; no renumbering logic
+              is reimplemented.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section style="background-color:#f8f9fa">
+  <div class="container py-5">
+    <div class="row">
+      <div class="col-12 text-center mb-4">
+        <h2 style="color:#714b67; font-size:30px; font-weight:700">Opt-In and Safe by Default</h2>
+      </div>
+    </div>
+    <div class="row justify-content-center">
+      <div class="col-md-5 col-12 mb-4">
+        <div class="card h-100" style="background-color:#f5efff; border:none; border-radius:12px">
+          <div class="card-body p-4">
+            <h4 style="font-weight:600; color:#333; margin-bottom:10px">
+              <i class="fa fa-toggle-off" style="color:#714b67; margin-right:8px"></i>Off by default, per journal
+            </h4>
+            <p style="color:#666; font-size:14px; line-height:22px; margin-bottom:0">
+              Enable <strong>&quot;Allow Auto-Resequencing on Backdated
+              Entries&quot;</strong> in a journal's Advanced Settings, next
+              to &quot;Secure Posted Entries with Hash&quot;. Journals where
+              strict manual control is wanted are never affected. Flat
+              numbering (no year/month in the sequence) is never touched
+              either way.
+            </p>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-5 col-12 mb-4">
+        <div class="card h-100" style="background-color:#f5efff; border:none; border-radius:12px">
+          <div class="card-body p-4">
+            <h4 style="font-weight:600; color:#333; margin-bottom:10px">
+              <i class="fa fa-lock" style="color:#714b67; margin-right:8px"></i>Hash-locked entries are never touched
+            </h4>
+            <p style="color:#666; font-size:14px; line-height:22px; margin-bottom:0">
+              If any affected entry is already secured by a posting hash,
+              auto-resequencing is skipped entirely for that group &mdash;
+              breaking the audit chain is never an option. The entry still
+              posts; a warning is logged pointing to the manual Resequence
+              wizard instead.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container py-5">
+    <div class="row">
+      <div class="col-12 text-center mb-4">
+        <h2 style="color:#714b67; font-size:30px; font-weight:700">Every Renumbering Is Logged</h2>
+      </div>
+    </div>
+    <div class="row justify-content-center">
+      <div class="col-md-8 col-12">
+        <div class="card shadow-sm" style="border:none; border-radius:12px">
+          <div class="card-body p-4">
+            <p style="color:#666; font-size:15px; line-height:24px; margin-bottom:0">
+              Each automatic renumbering is posted as a chatter message on
+              the affected journal entry &mdash;
+              <em>&quot;Automatically resequenced from X to Y due to
+              backdated posting&quot;</em> &mdash; the same place all of an
+              entry's other audit history lives. Concurrent backdated
+              posting into the same journal and period is serialized with a
+              row lock before resequencing, so two users posting at once
+              can't produce duplicate or skipped numbers.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section style="background-color:#f8f9fa">
+  <div class="container py-5">
+    <div class="row justify-content-center">
+      <div class="col-md-6 col-12 text-center">
+        <h3 style="color:#714b67; font-size:22px; font-weight:600; margin-bottom:16px">Support</h3>
+        <p style="color:#666; font-size:15px; margin-bottom:20px">Questions or issues? Get in touch:</p>
+        <a href="mailto:info@dotbdsolutions.com" class="btn" style="background-color:#714b67; color:#fff; border:none; border-radius:8px; padding:12px 30px">
+          Contact Dot BD Solutions
+        </a>
+        <p style="color:#999; font-size:13px; margin-top:24px; margin-bottom:0">
+          Built by John Pritom Biswas for Dot BD Solutions Limited &mdash; linkedin.com/in/johnpritombiswas
+        </p>
+      </div>
+    </div>
+  </div>
+</section>

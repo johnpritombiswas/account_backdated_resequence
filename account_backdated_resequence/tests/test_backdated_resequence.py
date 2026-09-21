@@ -31,6 +31,21 @@ class TestBackdatedResequenceCommon(AccountTestInvoicingCommon):
         })
         return move
 
+    def _corrupt_move_name(self, move, new_name):
+        """Simulate the core Odoo bug this module guards against: a posted
+        move whose name carries the wrong year/month for its own date,
+        written the same low-level way sequence.mixin._locked_increment
+        writes a real sequence number - a raw SQL UPDATE that bypasses the
+        ORM's date/sequence constraint entirely - with the stored
+        sequence_prefix/sequence_number split fields brought back in sync
+        afterwards, exactly like sequence.mixin._set_next_sequence does
+        right after its own raw SQL write.
+        """
+        self.env.cr.execute("UPDATE account_move SET name = %s WHERE id = %s", (new_name, move.id))
+        move.invalidate_recordset(['name'])
+        move._compute_split_sequence()
+        move.flush_recordset(['sequence_prefix', 'sequence_number'])
+
 
 @tagged('post_install', '-at_install')
 class TestBackdatedResequence(TestBackdatedResequenceCommon):
@@ -122,6 +137,105 @@ class TestBackdatedResequence(TestBackdatedResequenceCommon):
         self.assertEqual(menu.action, action)
         self.assertEqual(action.res_model, 'account.move')
         self.assertIn('backdated_resequence', action.context)
+
+    def test_wrong_prefix_seed_is_corrected_on_next_post_in_that_period(self):
+        """Reproduces the actual bug: once one entry's name carries the
+        wrong year/month for its own date, core Odoo's *own* sequence
+        lookup (not our code) finds that entry by date and copies its wrong
+        prefix onto the next entry posted into that same true period -
+        which would otherwise hard-block the post entirely with "The Date
+        ... isn't aligned with the existing sequence number ...". This
+        happens even though the toggle is off and no menu is used - prefix
+        correctness is not opt-in.
+
+        The wrong-named reference here is a draft, left unposted:
+        core's own lookup domain doesn't filter by state, so it's still
+        picked up as an "existing name" for a later post landing in the
+        same date range - the same mechanism a posted-but-wrong historical
+        entry would cause, without needing hash-chain bookkeeping in the
+        test setup.
+        """
+        self.journal.auto_resequence_backdated = False
+
+        sept_move = self._create_move('2024-09-05')
+        sept_move.action_post()
+        self.assertEqual(sept_move.name, 'BDR/2024/09/0001')
+
+        bad_ref = self._create_move('2024-08-12')
+        bad_ref.name = 'BDR/2024/09/0099'  # draft: no constraint fires on this write
+
+        # A brand-new August entry: core will find the wrong reference (its
+        # date is genuinely in August) and copy its "09" prefix, unless our
+        # fix catches it - and would otherwise hard-block the post outright.
+        new_august_move = self._create_move('2024-08-20')
+        new_august_move.action_post()  # must not raise
+
+        new_august_move.invalidate_recordset(['name'])
+        self.assertEqual(
+            new_august_move.name, 'BDR/2024/08/0001',
+            "A new August entry must not inherit a wrong 09 prefix copied from an earlier bad reference.",
+        )
+        correction_msg = new_august_move.message_ids.filtered(lambda m: 'Corrected sequence' in (m.body or ''))
+        self.assertTrue(correction_msg, "Expected an audit chatter message documenting the correction.")
+
+    def test_wrong_prefix_on_hash_locked_journal_warns_only(self):
+        """In a hash-secured journal, a newly posted entry is hashed
+        immediately inside the same post - so even the entry that just
+        inherited a wrong prefix can no longer be renamed; warn instead.
+
+        The wrong reference points at an otherwise-empty month (December),
+        not one with its own already-posted chain (like September in the
+        other test): reusing a populated chain here would trip core's own,
+        unrelated hash-chain gap-detection safety check first, masking the
+        thing this test actually verifies.
+        """
+        self.journal.restrict_mode_hash_table = True
+
+        bad_ref = self._create_move('2024-08-12')
+        bad_ref.name = 'BDR/2024/12/0001'  # draft: never hashed, never validated
+
+        new_august_move = self._create_move('2024-08-20')
+        new_august_move.action_post()  # must not raise
+
+        new_august_move.invalidate_recordset(['name'])
+        self.assertTrue(new_august_move.inalterable_hash)
+        self.assertEqual(new_august_move.name, 'BDR/2024/12/0002')
+        warning_msg = new_august_move.message_ids.filtered(
+            lambda m: 'does not match its Accounting Date' in (m.body or '')
+        )
+        self.assertTrue(warning_msg, "Expected a warning chatter message about the uncorrectable mismatch.")
+
+    def test_repair_wizard_fixes_existing_corrupted_entries(self):
+        """The manual repair wizard cleans up history predating the module -
+        entries the automatic, per-post correction never touched because
+        they weren't the one being posted."""
+        sept_move = self._create_move('2024-09-05')
+        sept_move.action_post()
+
+        bad_seed = self._create_move('2024-08-12')
+        bad_seed.action_post()
+        self._corrupt_move_name(bad_seed, 'BDR/2024/09/0099')
+        self.assertEqual(bad_seed.name, 'BDR/2024/09/0099')  # corruption seeded, unaffected by any post
+
+        wizard = self.env['account.backdated.resequence.repair.wizard'].create({
+            'journal_ids': [(6, 0, [self.journal.id])],
+        })
+        wizard.action_scan_and_repair()
+
+        bad_seed.invalidate_recordset(['name'])
+        self.assertEqual(bad_seed.name, 'BDR/2024/08/0001')
+        self.assertIn('BDR/2024/09/0099', wizard.result_summary)
+        self.assertIn('BDR/2024/08/0001', wizard.result_summary)
+
+    def test_repair_wizard_reports_nothing_to_fix_on_clean_data(self):
+        move = self._create_move('2024-08-05')
+        move.action_post()
+
+        wizard = self.env['account.backdated.resequence.repair.wizard'].create({
+            'journal_ids': [(6, 0, [self.journal.id])],
+        })
+        wizard.action_scan_and_repair()
+        self.assertIn('nothing to repair', wizard.result_summary)
 
 
 class TestBackdatedResequenceConcurrency(TransactionCase):

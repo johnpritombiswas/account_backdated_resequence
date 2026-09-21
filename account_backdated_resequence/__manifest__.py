@@ -36,6 +36,19 @@ Off by default and opt-in per journal, so journals where strict manual
 control is wanted are never affected. Flat-numbered journals (no
 year/month in the sequence) are never touched either way.
 
+Also fixes a sharper, related core Odoo bug: when a brand-new entry's date
+falls in the same period as an *existing* entry, Odoo copies that
+existing entry's year/month digits straight out of its name rather than
+computing them from the date. If that existing entry's name was ever
+wrong - typically from a data migration that set the entry number
+directly - every later entry in that period silently inherits the same
+wrong year/month, entry after entry (e.g. an entry dated in August ending
+up named .../09/0023). This module now checks every posted entry's name
+against its own date and corrects any mismatch automatically, on every
+journal - this is a data-integrity fix, not an opt-in feature. The
+Accounting app's Accounting tab gets a "Repair Sequence Prefixes" menu
+(Accountant/Advisor access) to scan and fix existing history in one click.
+
 Safety and integrity:
 
 * If any of the affected entries are already secured by a posting hash
@@ -50,7 +63,7 @@ Safety and integrity:
 
 See README.md in this module for more detail.
 """,
-    "version": "18.0.1.1.0",
+    "version": "18.0.1.2.0",
     "category": "Accounting/Accounting",
     "license": "LGPL-3",
     "author": "DotBD Solutions",
@@ -60,8 +73,10 @@ See README.md in this module for more detail.
     "support": "info@dotbdsolutions.com",
     "depends": ["account"],
     "data": [
+        "security/ir.model.access.csv",
         "views/account_journal_views.xml",
         "views/account_move_menus.xml",
+        "wizard/repair_wrong_sequence_prefix_wizard_views.xml",
     ],
     "images": ["static/description/icon.png"],
     "installable": True,

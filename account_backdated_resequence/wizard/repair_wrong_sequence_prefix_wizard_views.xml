@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_repair_wrong_sequence_prefix_wizard" model="ir.ui.view">
+        <field name="name">account.backdated.resequence.repair.wizard.form</field>
+        <field name="model">account.backdated.resequence.repair.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Repair Sequence Prefixes">
+                <group invisible="result_summary">
+                    <field name="journal_ids" widget="many2many_tags"/>
+                </group>
+                <p class="text-muted" invisible="result_summary">
+                    Checks every posted entry in the chosen journals (all journals,
+                    if none are chosen) against its own Accounting Date, and renames
+                    any whose year/month was assigned incorrectly by Odoo's own
+                    sequence numbering - see the account_backdated_resequence
+                    module's README for why this happens. Entries already secured
+                    by a posting hash are reported, not renamed.
+                </p>
+                <group invisible="not result_summary">
+                    <field name="result_summary" readonly="1" nolabel="1"/>
+                </group>
+                <footer>
+                    <button string="Scan &amp; Repair" name="action_scan_and_repair"
+                            type="object" class="btn-primary" invisible="result_summary"/>
+                    <button string="Close" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_repair_wrong_sequence_prefix_wizard" model="ir.actions.act_window">
+        <field name="name">Repair Sequence Prefixes</field>
+        <field name="res_model">account.backdated.resequence.repair.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <menuitem id="menu_repair_wrong_sequence_prefix_wizard"
+              name="Repair Sequence Prefixes"
+              parent="account.menu_finance_entries"
+              action="action_repair_wrong_sequence_prefix_wizard"
+              sequence="3"
+              groups="account.group_account_manager"/>
+</odoo>

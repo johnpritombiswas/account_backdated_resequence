@@ -23,10 +23,11 @@ class AccountMove(models.Model):
         # persisted (a hash-locked entry that can't be corrected gets a
         # chatter warning instead, same as the reordering logic below).
         posted = super(AccountMove, self.with_context(skip_sequence_date_check=True))._post(soft=soft)
-        # Correcting an entry whose name carries the wrong year/month for its
-        # own date is not a "nice to have" like the reordering below - it is
-        # fixing a data-integrity bug in core Odoo's own numbering, so it
-        # runs unconditionally, on every journal, not just opted-in ones.
+        # Both run unconditionally, on every journal - no per-journal setting
+        # to remember, nothing to turn on. _correct_wrong_sequence_prefix
+        # fixes an entry's year/month against its own date (a correctness
+        # fix); _auto_resequence_backdated then puts that period's numbers
+        # in date order.
         posted._correct_wrong_sequence_prefix()
         posted._auto_resequence_backdated()
         return posted
@@ -158,17 +159,11 @@ class AccountMove(models.Model):
 
     def _auto_resequence_backdated(self):
         """After posting, silently reorder entries whose numbering is out of
-        chronological sync because this move was backdated - only for
-        journals that opted in (`auto_resequence_backdated`) or entries posted
-        through Accounting > Backdated Journal Entries (which sets the
-        `backdated_resequence` context key), and whose sequence actually
-        carries a date component.
+        chronological sync because this move was backdated - on every
+        journal, unconditionally, same as the prefix correction above.
+        Skipped only for moves whose sequence carries no date component.
         """
-        via_menu = self.env.context.get('backdated_resequence')
         for move in self:
-            journal = move.journal_id
-            if not (journal.auto_resequence_backdated or via_menu):
-                continue
             if not move.name or move.name == '/':
                 continue
             if move._deduce_sequence_number_reset(move.name) == 'never':

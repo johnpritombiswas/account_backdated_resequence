@@ -16,7 +16,6 @@ class TestBackdatedResequenceCommon(AccountTestInvoicingCommon):
             'name': 'Backdated Resequence Test Journal',
             'code': 'BDR',
             'type': 'general',
-            'auto_resequence_backdated': True,
         })
 
     def _create_move(self, date):
@@ -45,6 +44,22 @@ class TestBackdatedResequenceCommon(AccountTestInvoicingCommon):
         move.invalidate_recordset(['name'])
         move._compute_split_sequence()
         move.flush_recordset(['sequence_prefix', 'sequence_number'])
+
+    def _swap_names_raw(self, move_a, move_b):
+        """Swap two already-posted moves' names directly via SQL (routed
+        through a scratch placeholder to avoid a momentary unique-constraint
+        collision), to construct a specific historical disorder scenario
+        without going through the module's own (now-unconditional)
+        auto-correction - which would otherwise fix the disorder as soon as
+        it's created, before the test gets a chance to set it up.
+        """
+        a_name, b_name = move_a.name, move_b.name
+        self.env.cr.execute("UPDATE account_move SET name = 'ZZ_SWAP_PLACEHOLDER' WHERE id = %s", (move_a.id,))
+        self.env.cr.execute("UPDATE account_move SET name = %s WHERE id = %s", (a_name, move_b.id))
+        self.env.cr.execute("UPDATE account_move SET name = %s WHERE id = %s", (b_name, move_a.id))
+        (move_a | move_b).invalidate_recordset(['name'])
+        (move_a | move_b)._compute_split_sequence()
+        (move_a | move_b).flush_recordset(['sequence_prefix', 'sequence_number'])
 
 
 @tagged('post_install', '-at_install')
@@ -85,22 +100,25 @@ class TestBackdatedResequence(TestBackdatedResequenceCommon):
         just reassigned to someone else, raising "Another entry with the
         same name already exists."
 
-        Setup: post two entries with the toggle off so they end up out of
-        date order with *each other* (real-world history, e.g. from before
-        this module was installed, or the toggle was enabled) - then post a
-        third, backdated between them, with the toggle on.
+        Setup: post two entries normally, then force them back out of date
+        order via a raw SQL swap, simulating history from before this
+        module existed (posting them backdated relative to each other would
+        just have the module fix it immediately, since reordering is
+        unconditional) - then post a third entry, backdated between them.
         """
-        self.journal.auto_resequence_backdated = False
         move_x = self._create_move('2024-08-25')
         move_x.action_post()
         move_y = self._create_move('2024-08-05')
-        move_y.action_post()  # backdated, but toggle is off: stays out of order
-
+        move_y.action_post()
         move_x.invalidate_recordset(['name'])
+        move_y.invalidate_recordset(['name'])
+        self.assertEqual(move_y.name, 'BDR/2024/08/0001')  # already auto-corrected
+        self.assertEqual(move_x.name, 'BDR/2024/08/0002')
+
+        self._swap_names_raw(move_x, move_y)  # force back out of order
         self.assertEqual(move_x.name, 'BDR/2024/08/0001')
         self.assertEqual(move_y.name, 'BDR/2024/08/0002')
 
-        self.journal.auto_resequence_backdated = True
         move_z = self._create_move('2024-08-15')
         move_z.action_post()  # must not raise "Another entry with the same name already exists"
 
@@ -112,18 +130,6 @@ class TestBackdatedResequence(TestBackdatedResequenceCommon):
         self.assertEqual(len(set(names)), 3, "No two entries should end up sharing a name.")
         by_date = sorted([move_x, move_y, move_z], key=lambda m: m.date)
         self.assertEqual([m.name for m in by_date], sorted(names), "All three must end up numbered in date order.")
-
-    def test_disabled_journal_is_unaffected(self):
-        """The toggle is opt-in: with it off, backdated posting is left as-is."""
-        self.journal.auto_resequence_backdated = False
-        move1 = self._create_move('2024-08-20')
-        move1.action_post()
-        move2 = self._create_move('2024-08-10')
-        move2.action_post()
-
-        move1.invalidate_recordset(['name'])
-        self.assertEqual(move1.name, 'BDR/2024/08/0001')
-        self.assertEqual(move2.name, 'BDR/2024/08/0002')
 
     def test_backdated_posting_into_hash_locked_journal_warns_only(self):
         """Hash-secured entries are never auto-resequenced; the post still succeeds."""
@@ -144,34 +150,17 @@ class TestBackdatedResequence(TestBackdatedResequenceCommon):
         warning_msg = move2.message_ids.filtered(lambda m: 'secured by a posting hash' in (m.body or ''))
         self.assertTrue(warning_msg, "Expected a warning chatter message explaining the hash-lock skip.")
 
-    def test_posting_via_backdated_menu_resequences_without_journal_toggle(self):
-        """Accounting > Backdated Journal Entries sets a context key: entries
-        posted through it are resequenced even if the journal toggle is off."""
-        self.journal.auto_resequence_backdated = False
-        move1 = self._create_move('2024-08-20')
-        move1.action_post()
-
-        move2 = self._create_move('2024-08-10')
-        move2.with_context(backdated_resequence=True).action_post()
-
-        move1.invalidate_recordset(['name'])
-        move2.invalidate_recordset(['name'])
-        self.assertEqual(move2.name, 'BDR/2024/08/0001')
-        self.assertEqual(move1.name, 'BDR/2024/08/0002')
-        self.assertTrue(
-            move1.message_ids.filtered(lambda m: 'Automatically resequenced' in (m.body or '')),
-            "Expected the audit chatter message on the renamed entry.",
-        )
-
     def test_backdated_menu_and_action_exist(self):
-        """The Accounting menu entry opens journal entries with the trigger context."""
+        """The Accounting menu entry is a plain filtered shortcut onto
+        Journal Entries - no special context is needed, since every journal
+        gets both fixes unconditionally regardless of which menu is used."""
         menu = self.env.ref('account_backdated_resequence.menu_backdated_journal_entries')
         action = self.env.ref('account_backdated_resequence.action_backdated_journal_entries')
         self.assertEqual(menu.name, 'Backdated Journal Entries')
         self.assertEqual(menu.parent_id, self.env.ref('account.menu_finance_entries'))
         self.assertEqual(menu.action, action)
         self.assertEqual(action.res_model, 'account.move')
-        self.assertIn('backdated_resequence', action.context)
+        self.assertIn('default_move_type', action.context)
 
     def test_wrong_prefix_seed_is_corrected_on_next_post_in_that_period(self):
         """Reproduces the actual bug: once one entry's name carries the
@@ -180,9 +169,6 @@ class TestBackdatedResequence(TestBackdatedResequenceCommon):
         prefix onto the next entry posted into that same true period -
         which would otherwise hard-block the post entirely with "The Date
         ... isn't aligned with the existing sequence number ...". This
-        happens even though the toggle is off and no menu is used - prefix
-        correctness is not opt-in.
-
         The wrong-named reference here is a draft, left unposted:
         core's own lookup domain doesn't filter by state, so it's still
         picked up as an "existing name" for a later post landing in the
@@ -190,8 +176,6 @@ class TestBackdatedResequence(TestBackdatedResequenceCommon):
         entry would cause, without needing hash-chain bookkeeping in the
         test setup.
         """
-        self.journal.auto_resequence_backdated = False
-
         sept_move = self._create_move('2024-09-05')
         sept_move.action_post()
         self.assertEqual(sept_move.name, 'BDR/2024/09/0001')
@@ -282,7 +266,6 @@ class TestBackdatedResequenceConcurrency(TransactionCase):
                 'name': 'concurrency_test_bdr',
                 'code': 'CTBDR',
                 'type': 'general',
-                'auto_resequence_backdated': True,
             })
             account_vals = {
                 'code': 'CTBDR',

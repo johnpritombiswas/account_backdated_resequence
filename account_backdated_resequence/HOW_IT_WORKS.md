@@ -4,28 +4,26 @@
 
 ```
 account_backdated_resequence/
-├── models/account_journal.py                          # adds the on/off toggle
 ├── models/account_move.py                              # ALL the sequencing logic
 ├── wizard/repair_wrong_sequence_prefix_wizard.py        # Accounting > Repair Sequence Prefixes
 ├── security/ir.model.access.csv                         # access for the wizard
-├── views/account_journal_views.xml                      # shows the toggle on the Journal form
 ├── views/account_move_menus.xml                         # Accounting -> Backdated Journal Entries
-└── tests/                                                # 15 tests
+└── tests/                                                # 10 tests
 ```
 
 ## Two separate problems, two separate fixes
 
 Both live in `models/account_move.py`, both trigger from the same `_post()`
-override, but they're independent:
+override, both run unconditionally on every journal, every post - neither
+needs any configuration:
 
 1. **Wrong-prefix correction** (`_correct_wrong_sequence_prefix`) - fixes a
-   name whose year/month doesn't match its own date. Runs unconditionally,
-   on every journal, every post - it's a correctness fix, not a
-   convenience. See below for why this can even happen.
+   name whose year/month doesn't match its own date. See below for why
+   this can even happen.
 2. **Chronological reordering** (`_auto_resequence_backdated`) - fixes
    numbers that are merely out of date order within an otherwise correct
-   period. Opt-in: only runs when the journal's toggle is on, or the entry
-   was posted through the *Backdated Journal Entries* menu.
+   period. Skipped for flat numbers such as `INV/0007` (no date component
+   to reorder by).
 
 ### 1. Wrong-prefix correction
 
@@ -58,17 +56,25 @@ silent corruption.
 
 ### 2. Chronological reordering
 
-1. **Gate.** Journal toggle on, or posted via the *Backdated Journal
-   Entries* menu (sets a `backdated_resequence` context flag). Skipped for
-   flat numbers such as `INV/0007` (no date component to reorder by).
-2. **Lock.** `SELECT ... FOR UPDATE` on that journal and period, so two
+1. **Lock.** `SELECT ... FOR UPDATE` on that journal and period, so two
    users posting at the same time cannot both reorder it. If PostgreSQL
    reports a serialization failure, Odoo's `retrying()` re-runs the whole
    transaction.
-3. **Detect disorder.** Take the other posted entries with the same
+2. **Detect disorder.** Take the other posted entries with the same
    sequence prefix (for example `MISC/26-27/08/`). The entry is out of
    order if some entry has a lower number but a later date. If none does,
    stop.
+3. **Full scope, not just the disordered ones.** The set handed to the
+   wizard is *every* sibling sharing the prefix, not only the ones
+   pairwise out of order with the move being posted. `account.resequence.
+   wizard` treats its input as a closed set and reassigns it sequential
+   numbers as if those were the only entries in the prefix - leaving some
+   sibling out (even one that's individually "in order") can leave it
+   still holding a number the wizard just reassigned to someone else,
+   raising a real `UniqueViolation` ("Another entry with the same name
+   already exists"). Handing it everyone keeps the numbering space
+   complete, so nothing outside the set can collide with a number now
+   assigned inside it.
 4. **Hash check.** If any affected entry has an `inalterable_hash`, do not
    renumber. Post a chatter warning on the entry and stop.
 5. **Fix.** Create Odoo's own `account.resequence.wizard` with
@@ -97,17 +103,14 @@ Fiscal year ends June 30. Entries are posted in this order:
 | 3 | (the Aug 20 entry) | | **`0002`** (renamed, with a chatter note) |
 
 At step 2 the module sees that entry `0001` has a later date (Aug 20) than the
-new one (Aug 10), so it reorders both by date. With the toggle off, and outside
-the menu, step 2 would stay `0002`, out of date order.
+new one (Aug 10), so it reorders both by date - automatically, on every
+journal, nothing to turn on first.
 
 ## Limits
 
 - **Reordering is per numbering period only.** It reorders within one
   prefix, i.e. one month for `MISC/26-27/08/xxxx`-style numbers, because
   the counter restarts monthly.
-- **Reordering assumes earlier entries were already in date order.** If the
-  existing numbering was already scrambled, the reorder could collide with
-  a number outside the affected set. This case is not tested.
 - **Doesn't fix a genuine fiscal-year misconfiguration.** The same error
   text - *"The Date ... isn't aligned with the existing sequence number"*
   - can also appear when the company's fiscal-year end (Accounting >

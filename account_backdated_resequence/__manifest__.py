@@ -13,28 +13,21 @@ entries out of date order therefore leaves the numbering silently out of
 sync with the dates, fixable today only through Settings > Developer Mode
 > select entries > Actions > Resequence.
 
-This module removes that manual step. Enable "Allow Auto-Resequencing on
-Backdated Entries" on a journal (Accounting > Configuration > Journals >
-Advanced Settings, next to "Secure Posted Entries with Hash") and, from
-then on, posting a backdated entry into that journal automatically:
+This module removes that manual step, on every journal, automatically -
+nothing to configure, nothing to switch on. Posting a backdated entry:
 
-* Posts the entry normally - it always succeeds, nothing is blocked.
-* Detects whether the entry's period (its year/month numbering group) is
-  now out of chronological order.
-* If so, reorders just that period's entries into date order, using
-  Odoo's own built-in Resequence wizard under the hood - no renumbering
-  logic is reimplemented.
+* Always succeeds - nothing is blocked, even when Odoo's own sequence
+  numbering would otherwise hard-block it (see the sharper bug below).
+* Gets checked against every other entry in its numbering period: if
+  it's out of chronological order, that period is reordered into date
+  order using Odoo's own built-in Resequence wizard under the hood - no
+  renumbering logic is reimplemented.
 * Logs a chatter message on every renamed entry: "Automatically
   resequenced from X to Y due to backdated posting" - a visible audit
   trail of every automatic renumbering.
 
-Prefer not to switch a whole journal? Use Accounting > Backdated Journal
-Entries instead: entries created and posted from that menu get the same
-automatic resequencing on any journal, with no journal setting needed.
-
-Off by default and opt-in per journal, so journals where strict manual
-control is wanted are never affected. Flat-numbered journals (no
-year/month in the sequence) are never touched either way.
+Flat-numbered journals (no year/month in the sequence) are never
+touched, since there's no date-based order to maintain.
 
 Also fixes a sharper, related core Odoo bug: when a brand-new entry's date
 falls in the same period as an *existing* entry, Odoo copies that
@@ -43,7 +36,7 @@ computing them from the date. If that existing entry's name was ever
 wrong - typically from a data migration that set the entry number
 directly - every later entry in that period silently inherits the same
 wrong year/month, entry after entry (e.g. an entry dated in August ending
-up named .../09/0023). This module now checks every posted entry's name
+up named .../09/0023). This module checks every posted entry's name
 against its own date and corrects any mismatch automatically, on every
 journal - this is a data-integrity fix, not an opt-in feature. The
 Accounting app's Accounting tab gets a "Repair Sequence Prefixes" menu
@@ -63,7 +56,7 @@ Safety and integrity:
 
 See README.md in this module for more detail.
 """,
-    "version": "18.0.1.2.1",
+    "version": "18.0.2.0.0",
     "category": "Accounting/Accounting",
     "license": "LGPL-3",
     "author": "DotBD Solutions",
@@ -74,7 +67,6 @@ See README.md in this module for more detail.
     "depends": ["account"],
     "data": [
         "security/ir.model.access.csv",
-        "views/account_journal_views.xml",
         "views/account_move_menus.xml",
         "wizard/repair_wrong_sequence_prefix_wizard_views.xml",
     ],

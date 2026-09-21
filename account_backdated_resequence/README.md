@@ -73,3 +73,5 @@ posting backdated entries into the same journal at the same time can't
 produce duplicate or skipped sequence numbers. Actual number uniqueness is
 still guaranteed the same way it always is in Odoo - by `sequence.mixin`'s
 own locked-increment mechanism over a partial unique index.
+
+See [HOW_IT_WORKS.md](HOW_IT_WORKS.md) for the structure and the step-by-step logic, with an example.

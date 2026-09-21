@@ -28,6 +28,10 @@ then on, posting a backdated entry into that journal automatically:
   resequenced from X to Y due to backdated posting" - a visible audit
   trail of every automatic renumbering.
 
+Prefer not to switch a whole journal? Use Accounting > Backdated Journal
+Entries instead: entries created and posted from that menu get the same
+automatic resequencing on any journal, with no journal setting needed.
+
 Off by default and opt-in per journal, so journals where strict manual
 control is wanted are never affected. Flat-numbered journals (no
 year/month in the sequence) are never touched either way.
@@ -46,7 +50,7 @@ Safety and integrity:
 
 See README.md in this module for more detail.
 """,
-    "version": "18.0.1.0.0",
+    "version": "18.0.1.1.0",
     "category": "Accounting/Accounting",
     "license": "LGPL-3",
     "author": "DotBD Solutions",
@@ -57,6 +61,7 @@ See README.md in this module for more detail.
     "depends": ["account"],
     "data": [
         "views/account_journal_views.xml",
+        "views/account_move_menus.xml",
     ],
     "images": ["static/description/icon.png"],
     "installable": True,

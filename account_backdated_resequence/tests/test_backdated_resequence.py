@@ -94,6 +94,35 @@ class TestBackdatedResequence(TestBackdatedResequenceCommon):
         warning_msg = move2.message_ids.filtered(lambda m: 'secured by a posting hash' in (m.body or ''))
         self.assertTrue(warning_msg, "Expected a warning chatter message explaining the hash-lock skip.")
 
+    def test_posting_via_backdated_menu_resequences_without_journal_toggle(self):
+        """Accounting > Backdated Journal Entries sets a context key: entries
+        posted through it are resequenced even if the journal toggle is off."""
+        self.journal.auto_resequence_backdated = False
+        move1 = self._create_move('2024-08-20')
+        move1.action_post()
+
+        move2 = self._create_move('2024-08-10')
+        move2.with_context(backdated_resequence=True).action_post()
+
+        move1.invalidate_recordset(['name'])
+        move2.invalidate_recordset(['name'])
+        self.assertEqual(move2.name, 'BDR/2024/08/0001')
+        self.assertEqual(move1.name, 'BDR/2024/08/0002')
+        self.assertTrue(
+            move1.message_ids.filtered(lambda m: 'Automatically resequenced' in (m.body or '')),
+            "Expected the audit chatter message on the renamed entry.",
+        )
+
+    def test_backdated_menu_and_action_exist(self):
+        """The Accounting menu entry opens journal entries with the trigger context."""
+        menu = self.env.ref('account_backdated_resequence.menu_backdated_journal_entries')
+        action = self.env.ref('account_backdated_resequence.action_backdated_journal_entries')
+        self.assertEqual(menu.name, 'Backdated Journal Entries')
+        self.assertEqual(menu.parent_id, self.env.ref('account.menu_finance_entries'))
+        self.assertEqual(menu.action, action)
+        self.assertEqual(action.res_model, 'account.move')
+        self.assertIn('backdated_resequence', action.context)
+
 
 class TestBackdatedResequenceConcurrency(TransactionCase):
     def setUp(self):
@@ -106,11 +135,16 @@ class TestBackdatedResequenceConcurrency(TransactionCase):
                 'type': 'general',
                 'auto_resequence_backdated': True,
             })
-            account = env['account.account'].create({
+            account_vals = {
                 'code': 'CTBDR',
                 'name': 'CTBDR',
-                'account_type': 'asset_fixed',
-            })
+                'account_type': 'expense',
+            }
+            if 'create_asset' in env['account.account']._fields:
+                # Enterprise `account_asset` adds a required column here; give it
+                # explicitly so this test also runs on an Enterprise database.
+                account_vals['create_asset'] = 'no'
+            account = env['account.account'].create(account_vals)
             moves = env['account.move'].create([
                 {
                     'journal_id': journal.id,

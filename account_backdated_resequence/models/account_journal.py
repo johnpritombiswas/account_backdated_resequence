@@ -20,5 +20,7 @@ class AccountJournal(models.Model):
              "posting hash (Secure Posted Entries with Hash), the audit "
              "chain cannot be broken: the new entry still posts normally, "
              "but automatic resequencing is skipped and a warning is "
-             "logged on the entry instead.",
+             "logged on the entry instead.\n\n"
+             "Entries posted from Accounting > Backdated Journal Entries are "
+             "handled the same way even when this option is off.",
     )

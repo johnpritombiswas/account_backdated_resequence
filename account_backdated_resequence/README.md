@@ -26,6 +26,16 @@ posting a backdated entry:
 4. Logs a chatter message on every renamed entry: *"Automatically
    resequenced from X to Y due to backdated posting."*
 
+## The menu: Accounting > Backdated Journal Entries
+
+Prefer not to switch on a whole journal? **Accounting → Backdated Journal
+Entries** opens the journal entries list (manual entries only). Anything you
+create and post from there gets the same automatic resequencing on *any*
+journal - no journal setting needed. Under the hood the menu's action sets a
+`backdated_resequence` context key that the posting logic checks. Hash-lock
+safety, the date-component check and the audit messages behave exactly as
+described below.
+
 ## The toggle
 
 **Accounting → Configuration → Journals → (a journal) → Advanced Settings

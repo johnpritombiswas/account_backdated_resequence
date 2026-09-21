@@ -17,12 +17,15 @@ class AccountMove(models.Model):
     def _auto_resequence_backdated(self):
         """After posting, silently reorder entries whose numbering is out of
         chronological sync because this move was backdated - only for
-        journals that opted in (`auto_resequence_backdated`) and whose
-        sequence actually carries a date component.
+        journals that opted in (`auto_resequence_backdated`) or entries posted
+        through Accounting > Backdated Journal Entries (which sets the
+        `backdated_resequence` context key), and whose sequence actually
+        carries a date component.
         """
+        via_menu = self.env.context.get('backdated_resequence')
         for move in self:
             journal = move.journal_id
-            if not journal.auto_resequence_backdated:
+            if not (journal.auto_resequence_backdated or via_menu):
                 continue
             if not move.name or move.name == '/':
                 continue
@@ -39,9 +42,15 @@ class AccountMove(models.Model):
         # the same journal/period can't compute conflicting resequence plans
         # at once. Per-number uniqueness itself is already guaranteed by
         # sequence.mixin's own _locked_increment/unique-index mechanism.
+        # A PostgreSQL SerializationFailure here is expected under concurrency
+        # (REPEATABLE READ snapshot older than another transaction's commit):
+        # Odoo's request/cron dispatch (odoo.service.model.retrying) rolls back
+        # and retries the whole transaction. Don't log it as an SQL error, the
+        # same way sequence.mixin._locked_increment doesn't for its own races.
         self.env.cr.execute(
             "SELECT id FROM account_move WHERE journal_id = %s AND sequence_prefix = %s FOR UPDATE",
             (journal.id, self.sequence_prefix),
+            log_exceptions=False,
         )
 
         domain = [

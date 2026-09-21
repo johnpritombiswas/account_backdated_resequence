@@ -38,6 +38,35 @@ class AccountMove(models.Model):
             return False
         return super()._must_check_constrains_date_sequence()
 
+    def _sequence_sub_chain_domain(self):
+        """Domain fragment restricting a sibling/last-number search to the
+        same numbering sub-chain as self, mirroring account.move's own
+        `_get_last_sequence_domain` split. Refunds, payments and (as of
+        Odoo 19) self-billing partners each number separately even when
+        they'd otherwise share a journal+prefix - scoping only to "same
+        journal, same prefix" would silently mix chains and hand a
+        sibling/last-number search entries that were never meant to share
+        a sequence with self.
+        """
+        self.ensure_one()
+        journal = self.journal_id
+        domain = []
+        if journal.refund_sequence:
+            refund_types = ('out_refund', 'in_refund')
+            domain += [('move_type', 'in' if self.move_type in refund_types else 'not in', refund_types)]
+        if journal.payment_sequence:
+            is_payment = bool(self.origin_payment_id)
+            domain += [('origin_payment_id', '!=' if is_payment else '=', False)]
+        if journal.is_self_billing:
+            if self.partner_id:
+                domain += [('commercial_partner_id', '=', self.partner_id.commercial_partner_id.id)]
+            else:
+                # No partner: core can't compute a sequence for this move
+                # either (see account.move._get_last_sequence_domain) - no
+                # sibling can genuinely share its chain.
+                domain += [(0, '=', 1)]
+        return domain
+
     def _correct_wrong_sequence_prefix(self):
         """Detect and fix entries whose assigned name carries a year/month
         that does not match their own Accounting Date.
@@ -128,16 +157,7 @@ class AccountMove(models.Model):
             ('sequence_prefix', '=', expected_prefix),
             ('state', '=', 'posted'),
             ('id', '!=', self.id),
-        ]
-        # Same sub-chain split as `_auto_resequence_backdated_one`: refunds
-        # and payments number separately even when they'd otherwise share a
-        # prefix, so "last" must respect that split too.
-        if journal.refund_sequence:
-            refund_types = ('out_refund', 'in_refund')
-            last_domain += [('move_type', 'in' if self.move_type in refund_types else 'not in', refund_types)]
-        if journal.payment_sequence:
-            is_payment = bool(self.origin_payment_id)
-            last_domain += [('origin_payment_id', '!=' if is_payment else '=', False)]
+        ] + self._sequence_sub_chain_domain()
         last = self.search(last_domain, order='sequence_number desc', limit=1)
         next_seq = (last.sequence_number + 1) if last else 1
 
@@ -196,18 +216,10 @@ class AccountMove(models.Model):
             ('id', '!=', self.id),
             ('state', '=', 'posted'),
             ('name', 'not in', ('/', False, '')),
-        ]
-        # Mirror account.move's own sub-chain split (refunds / payments share
-        # a journal+prefix with a different numbering chain) so we never hand
-        # the wizard a mix it would itself refuse (see
+        ] + self._sequence_sub_chain_domain()
+        # Mirroring account.move's own sub-chain split matters here so we
+        # never hand the wizard a mix it would itself refuse (see
         # account.resequence.wizard.default_get).
-        if journal.refund_sequence:
-            refund_types = ('out_refund', 'in_refund')
-            domain += [('move_type', 'in' if self.move_type in refund_types else 'not in', refund_types)]
-        if journal.payment_sequence:
-            is_payment = bool(self.origin_payment_id)
-            domain += [('origin_payment_id', '!=' if is_payment else '=', False)]
-
         siblings = self.search(domain)
         if not siblings:
             return
